@@ -178,26 +178,25 @@ def main():
         print(CONSTANT.MESS_NO_CUDA);
         return;
 
-    data_path = CONSTANT.D_UCF101_BODY_TEST_DIR_DEV_3
+    data_path = "data/tri_testlist.txt"
     print(opt)
 
-    opt.path = "%s/%s_attention_%s" % (CONSTANT.TEST_PATH_DEBUG if opt.debug_mode else CONSTANT.TEST_PATH, opt.path, opt.version)
+    opt.path = "gen_output"
     try:
         shutil.rmtree(opt.path, ignore_errors=False)
         print("----------------------------------------------\nDeleted old results at %s\n----------------------------------------------" % opt.path)
     except FileNotFoundError:
         pass
-    os.makedirs(CONSTANT.TEST_PATH_DEBUG if opt.debug_mode else CONSTANT.TEST_PATH, exist_ok=True);
     os.makedirs(opt.path, exist_ok=False);
 
     dataloader = general_utils.load_dataset_from_dir(batch_size=1, data_path=data_path, is_testing=True, patch_size=3)
     print("----------------------------------------------")
     
-    path_prefix = "%s_attention_%s" % (CONSTANT.TRAINING_OUTPUT_DEBUG if opt.debug_mode else CONSTANT.TRAINING_OUTPUT, opt.version)
     for i in range(1, 5):
         # coarsest at 1 and finest at 4
         model = net.FrameInterpolationGenerator(nfg=opt.nfg, depth=i, configs=None, epoch=None)
-        model.load("%s/%s/net_gen_%d.pt" % (path_prefix, opt.gen_path, i))
+        # models are saved as net_gen_0.pt, net_gen_1.pt, ...
+        model.load("%s/net_gen_%d.pt" % (opt.gen_path, i))
         model.to('cuda')
         net_gens.append(model)
         print(net_gens[i - 1])
