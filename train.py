@@ -33,11 +33,9 @@ parser.add_argument("--lambda_l1", type=float, default=1.0, help="the default we
 parser.add_argument("--path_gen", type=str, default=None, help="loaded generator for training")
 parser.add_argument("--path_dis", type=str, default=None, help="loaded discriminator for training")
 parser.add_argument("--version", type=str, default="temp", help="version of model")
-parser.add_argument("--debug_mode", type=str, default=True, help="running mode: debug (by default) or release")
 parser.add_argument("--path", type=str, default=None, help="training folder")
 
 opt = parser.parse_args()
-opt.debug_mode = (opt.debug_mode == "True" or opt.debug_mode == True)
 
 net_gens = []
 net_diss = []
@@ -94,9 +92,6 @@ def train(dataloader):
             net_gens[i].increase_epoch()
             net_diss[i].increase_epoch()
         
-        if not opt.debug_mode or (net_gens[0].get_epoch() in range (opt.n_epochs - 3, opt.n_epochs)):
-            _save_models(path=opt.path, epoch=net_gens[0].get_epoch(), override=False, is_cpt=True)
-        
         _save_models(path=opt.path, epoch=net_gens[0].get_epoch(), override=True, is_cpt=False)
         
         for i in range(len(net_gens)):
@@ -104,7 +99,7 @@ def train(dataloader):
     
     return net_gens[0].get_epoch(), g_loss, d_loss, d_seq_loss;
 
-# end train_static_distance
+# end train
 
 
 def _train_interval(in_pres, in_lats, gt):
@@ -193,6 +188,8 @@ def _train_interval(in_pres, in_lats, gt):
     # end training generator
     
     return gen_imgs[3], d_loss.item(), d_seq_loss.item(), g_loss.item()
+
+# end _train_interval
 
 
 def _show_progress(gen_imgs, groundtruth, epoch, batch_index, total_batch, d_loss, d_seq_loss, g_loss):
@@ -314,12 +311,8 @@ def main():
         print(CONSTANT.MESS_NO_CUDA);
         return;
     
-    opt.path = "%s_attention_%s/" % (CONSTANT.TRAINING_OUTPUT_DEBUG if opt.debug_mode else CONSTANT.TRAINING_OUTPUT, opt.version) if opt.path is None else opt.path
-    data_dir = CONSTANT.D_UCF101_BODY_TRAIN_DIR_DEV_3 if opt.debug_mode else CONSTANT.D_UCF101_VAL_DIR_RELEASE_3
-#     if opt.debug_mode:
-#         data_dir = CONSTANT.D_VIMEO_VAL_PATHS_3
-#     else:
-#         data_dir = CONSTANT.D_VIMEO_TRAIN_PATHS_3
+    opt.path = "output_" if opt.path is None else opt.path
+    data_dir = ["data/tri_trainlist.txt", "data/tri_vallist.txt"]
 
     print(opt)
         
@@ -327,8 +320,6 @@ def main():
     
     print("==============<Prepare networks/>============================")
     t1 = time.time()
-    
-    # TODO: support train from pre-trained one
 
     globals()['seq_dis'] = dis_net.FramesSequenceDiscriminator(nfg=opt.nfg, configs=opt, epoch=None)
     for i in range(1, 5):
@@ -347,16 +338,13 @@ def main():
     print("==============<Prepare dataset/>=============================")
     t1 = time.time()
     p_size = 3
-    if data_dir in CONSTANT.D_VIMEO_COLLECTION:
-        dataloader = general_utils.load_dataset_from_path_file(batch_size=opt.batch_size, txt_path=data_dir, is_testing=False, patch_size=p_size)
-        test_dataloader = general_utils.load_dataset_from_path_file(batch_size=1, txt_path=CONSTANT.D_VIMEO_VAL_PATHS_3, is_testing=True, patch_size=p_size)
-    else:
-        dataloader = general_utils.load_dataset_from_dir(batch_size=opt.batch_size, data_path=data_dir, is_testing=False, patch_size=p_size)
+    dataloader = general_utils.load_dataset_from_path_file(batch_size=opt.batch_size, txt_path=data_dir[0], is_testing=False, patch_size=p_size)
+    test_dataloader = general_utils.load_dataset_from_path_file(batch_size=1, txt_path=data_dir[1], is_testing=True, patch_size=p_size)
     print("==> Takes total %1.4fs" % ((time.time() - t1)))
 
     print("==============<Training/>====================================")
     t1 = time.time()
-    if opt.debug_mode:
+    if opt.n_epochs > 0:
         train(dataloader) 
     else:
         train_unlimited(dataloader, test_dataloader)
