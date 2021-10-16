@@ -23,15 +23,11 @@ parser.add_argument("--input_size", type=int, default=128, help="size of the inp
 parser.add_argument("--nfg", type=int, default=32, help="feature map size of networks")
 parser.add_argument("--n_cpu", type=int, default=8, help="number of cpu threads to use during batch generation")
 parser.add_argument("--channels", type=int, default=3, help="number of image channels")
-parser.add_argument("--overlapped_pixels", type=int, default=10, help="overlapped pixels between blocks while testing")
 parser.add_argument("--path", type=str, default="output", help="training image folder")
-parser.add_argument("--gen_path", type=str, default="models", help="loaded generator for testing")
+parser.add_argument("--gen_path", type=str, required=True, help="loaded generator for testing")
 parser.add_argument("--version", type=str, default="1.0.0", help="version of model")
-parser.add_argument("--debug_mode", type=str, default=True, help="running mode: debug (by default) or release")
 
 opt = parser.parse_args()
-opt.debug_mode = opt.debug_mode == "True" or opt.debug_mode == True
-opt.gen_path = "%s_attention/%s/" % (CONSTANT.TRAINING_OUTPUT_DEBUG if opt.debug_mode else CONSTANT.TRAINING_OUTPUT, opt.gen_path)
 
 net_gens = []
 
@@ -60,43 +56,28 @@ def _cal_metrics(gt_tensors, gen_tensors):
 # end _cal_metrics
 
 
-def _generate_full_frame(input1, input2, net_input_size, overlapped_pixels):
+def _generate_full_frame(input1, input2):
     '''
     Generate a full frame (larger than training input 128x128) from given frames.
-    :param net_input_size: network input size, 128x128 by default
     :param input1: previous frame
     :param input2: latter frame
     '''
-    blocks = []
-    shape = input1.shape
-    n_rows = frame_utils.get_no_row_blocks(shape[2], net_input_size, overlapped_pixels)
-    n_cols = frame_utils.get_no_row_blocks(shape[3], net_input_size, overlapped_pixels)
-    for i in range(n_rows):
-        for j in range(n_cols):
-            dx = i * net_input_size - i * overlapped_pixels
-            dy = j * net_input_size - j * overlapped_pixels
-            temp1 = input1[:, :, dx:dx + net_input_size, dy:dy + net_input_size].clone()
-            temp2 = input2[:, :, dx:dx + net_input_size, dy:dy + net_input_size].clone()
-            temp1, h1, w1 = frame_utils.pre_processing(temp1, net_input_size)
-            temp2, h2, w2 = frame_utils.pre_processing(temp2, net_input_size)
-            temp_gen = _generate_a_block(temp1, temp2)
-            if h1 != h2 and w1 != w2:
-                print("Different padding values (%d, %d) and (%d, %d)" % (h1, w1, h2, w2))
-            else:
-                temp_gen = frame_utils.post_processing(temp_gen, h1, w1)
-
-            blocks.append(temp_gen)
-        
-        # end for
+    h = math.ceil(input1.shape[2]/division) * division
+    w = math.ceil(input1.shape[3]/division) * division
+    size = max(h, w)
+    temp1, h1, w1 = frame_utils.pre_processing(input1, size)
+    temp2, h2, w2 = frame_utils.pre_processing(input2, size)
+    temp_gen = _generate(temp1, temp2)
     
-    # end for
+    assert h1 == h2
+    assert w1 == w2
 
-    return (frame_utils.concat_to_frame(blocks, n_cols, n_rows, overlapped_pixels)).cuda()
+    return temp_gen.cuda()
 
 # end _generate_full_frame
 
 
-def _generate_a_block(block1, block2):
+def _generate(block1, block2):
     output = None
     for i in range(len(net_gens)):
         temp_pre = nn.functional.interpolate(block1, scale_factor=2 ** (i - 3), mode="bilinear") if i < 3 else block1
@@ -110,11 +91,10 @@ def _generate_a_block(block1, block2):
 # end _generate_a_block
 
 
-def _run_test_one_batch(imgs, channels, net_input_size, overlapped_pixel):
+def _run_test_one_batch(imgs, channels):
     '''
     Generate frames and calculate metrics for evaluation for previous versions of v2.0.0
     :param imgs: image data patch (three images)
-    :param net_input_size: network input size, 128x128 by default
     '''
     input1 = imgs[0].to('cuda')
     input2 = imgs[2].to('cuda')
@@ -122,14 +102,12 @@ def _run_test_one_batch(imgs, channels, net_input_size, overlapped_pixel):
         
     # Process full frame test by processing each partition
     temp_start = time.time()
-    gen_frames = _generate_full_frame(input1, input2, net_input_size, overlapped_pixel)        
+    gen_frames = _generate_full_frame(input1, input2)        
     runtime = time.time() - temp_start
 
     psnr, ssim = _cal_metrics(gt_frames, gen_frames)
     
-    samples = torch.cat((input1, gt_frames, gen_frames, input2), 1)  # @UndefinedVariable
-#    Disable due to lack of CUDA
-#     samples = torch.cat((abs(input1 - input2), gt_frames, gen_frames), 1)  # @UndefinedVariable
+    samples = torch.cat((input1, gt_frames, gen_frames, input2), 1)
     samples = samples.view(samples.shape[0], -1, channels, samples.shape[2], samples.shape[3])
     
     return samples, [runtime], psnr, ssim
@@ -137,7 +115,7 @@ def _run_test_one_batch(imgs, channels, net_input_size, overlapped_pixel):
 # end _run_test_one_batch
 
     
-def run_test(dataloader, output_path, channels, net_input_size, batch_size, overlapped_pixel):
+def run_test(dataloader, output_path, channels, batch_size):
     '''
     Run test on whole loaded dataset
     :param dataloader: dataloader object (loading dataset)
@@ -158,7 +136,7 @@ def run_test(dataloader, output_path, channels, net_input_size, batch_size, over
             print(str(current_progress) + "%")
         
         # Process full frame test by processing each partition
-        samples, runtime, psnr, ssim = _run_test_one_batch(imgs, channels, net_input_size, overlapped_pixel=overlapped_pixel)
+        samples, runtime, psnr, ssim = _run_test_one_batch(imgs, channels)
         time_list.extend(runtime)
         psnr_list.extend(psnr)
         ssim_list.extend(ssim)
@@ -228,7 +206,7 @@ def main():
     print("Start testing at %d epoch." % net_gens[0].get_epoch())
     logging(opt.path, "Testing:\n%s\n%s\nDataset: %s\nEpoch: %d" % (str(opt), str(net_gens[0]), data_path, net_gens[0].get_epoch()), is_exist=False)
  
-    run_test(dataloader, opt.path, opt.channels, opt.input_size, opt.batch_size, opt.overlapped_pixels)
+    run_test(dataloader, opt.path, opt.channels, opt.batch_size)
 
 
 main()
