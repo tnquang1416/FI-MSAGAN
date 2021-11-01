@@ -1,4 +1,4 @@
-# FI-MSGAN
+# FI-MSAGAN
 My personal implementation for Multi-Scale Attention Generative Adversarial Networks for Video Frame Interpolation (2020).
 
 # Requirements
