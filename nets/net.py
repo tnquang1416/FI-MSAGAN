@@ -73,8 +73,9 @@ class FrameInterpolationGenerator(base_net.BaseModel):
         
         # attention masks
         mask = self.map_input_layer(input_frames)
+        mask_residual = mask
         mask = self.map_residuals(mask)
-        mask = self.map_last_conv(ftr)
+        mask = self.map_last_conv(mask + mask_residual)
         mask = self.sigmoid(mask)
         
         # calculate output frames
